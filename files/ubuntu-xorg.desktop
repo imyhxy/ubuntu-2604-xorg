@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Ubuntu on Xorg
+Comment=This session logs you into Ubuntu using Xorg
+Exec=env GNOME_SHELL_SESSION_MODE=ubuntu /usr/bin/gnome-session --session=ubuntu
+TryExec=/usr/bin/gnome-shell
+Type=Application
+DesktopNames=ubuntu;GNOME
+X-GDM-SessionRegisters=true
+X-GDM-CanRunHeadless=true
+X-GDM-SessionType=x11
+X-Ubuntu-Gettext-Domain=gnome-session

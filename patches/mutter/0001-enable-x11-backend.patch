@@ -1,0 +1,34 @@
+From: ubuntu-2604-xorg
+Subject: Enable mutter X11 backend for Ubuntu 26.04
+
+This enables the mutter X11 backend (Meson -Dx11=true) so GNOME Shell can run
+as a real X11 window manager/compositor in an "Ubuntu on Xorg" session.
+
+This also installs mutter-restart-helper (produced when building with X11) and
+relaxes dpkg-gensymbols checking for this local rebuild.
+
+--- a/debian/rules
++++ b/debian/rules
+@@
+-export DPKG_GENSYMBOLS_CHECK_LEVEL = 4
++export DPKG_GENSYMBOLS_CHECK_LEVEL = 0
+@@
+ CONFFLAGS = \
+ 	-Dauto_features=enabled \
+ 	-Degl_device=true \
+ 	-Dremote_desktop=true \
+-	-Dwayland_eglstream=true
++	-Dwayland_eglstream=true \
++	-Dx11=true
+ export deb_udevdir = $(shell pkg-config --variable=udevdir udev | sed s,^/,,)
+
+--- a/debian/mutter-common-bin.install
++++ b/debian/mutter-common-bin.install
+@@
+ usr/bin/gdctl
+ usr/libexec/mutter-backlight-helper
++usr/libexec/mutter-restart-helper
+ usr/libexec/mutter-x11-frames
+ usr/share/bash-completion/completions/gdctl
+ usr/share/man/man1/gdctl.1
+ usr/share/polkit-1/actions/org.gnome.mutter.backlight-helper.policy

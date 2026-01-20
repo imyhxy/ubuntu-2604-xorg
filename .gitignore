@@ -1,0 +1,8 @@
+/out/
+/work/
+/logs/
+*.deb
+*.buildinfo
+*.changes
+*.dsc
+*.tar.*
