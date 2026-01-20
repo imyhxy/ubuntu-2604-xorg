@@ -1,0 +1,196 @@
+Ubuntu “Ubuntu on Xorg” enablement (build + debug) — Summary
+Date: 2026-01-20
+Workspace: /media/someone/zeus/build-gnome
+
+Goal (what we’re trying to achieve)
+- Make a working “Ubuntu on Xorg” (X11) login in GDM, suitable for unattended remote control (e.g. RustDesk).
+- Keep Wayland available as a fallback during testing so the machine is still accessible if Xorg login fails.
+- Keep everything reversible and document rollback.
+
+Important notes / constraints
+- This Codex tool runner cannot use sudo (sudo is not setuid inside the sandbox), so any root commands shown below must be run
+  by you in a real terminal.
+- Your login journals show that some environment variables (including API keys) are being recorded by GDM/Xsession startup logs.
+  Treat that as a secret leak and rotate/remove any secrets from your session environment.
+
+========================================================
+Baseline system state (discovery)
+========================================================
+- OS: Ubuntu 26.04 “Resolute” (development branch), amd64.
+- GNOME stack: gdm3 49.2-1ubuntu4, gnome-session 49.2-3ubuntu1, gnome-shell 49.2-1ubuntu1, mutter 49.2-1ubuntu1.
+- Xorg is installed (xserver-xorg-core, xserver-xorg-legacy, etc).
+- /usr/share/xsessions initially did not have an Ubuntu/gnome X11 session entry.
+- Wayland sessions exist under /usr/share/wayland-sessions.
+
+========================================================
+Iteration 1 (superseded): ubuntu-xorg-only-session
+========================================================
+What it did:
+- Built: out/ubuntu-xorg-only-session_1.0_all.deb and out/ubuntu-xorg-only-session_1.1_all.deb
+- Added /usr/share/xsessions/ubuntu-xorg.desktop
+- Edited /etc/gdm3/custom.conf (WaylandEnable=false, DefaultSession=ubuntu-xorg.desktop)
+- dpkg-divert’ed /usr/share/xsessions/* and /usr/share/wayland-sessions/* to hide everything except Ubuntu-on-Xorg
+
+Why it was stopped:
+- You asked not to disable/hide Wayland during testing (so you can always log back in via Wayland if Xorg breaks).
+- After testing, you had login failures with the Xorg session and you removed ubuntu-xorg-only-session.
+
+========================================================
+Iteration 2 (current “safe” session package): ubuntu-xorg-session
+========================================================
+Built and kept:
+- out/ubuntu-xorg-session_1.0_all.deb
+
+What it does (safe / minimal):
+- Adds /usr/share/xsessions/ubuntu-xorg.desktop (“Ubuntu on Xorg”)
+- Adds missing systemd user units required for GNOME session on X11 on this machine:
+  - /usr/lib/systemd/user/gnome-session-x11@.target
+  - /usr/lib/systemd/user/gnome-session-x11.target
+  - /usr/lib/systemd/user/org.gnome.Shell@x11.service
+  - /usr/lib/systemd/user/org.gnome.Shell.target.d/ubuntu-xorg-session.conf
+- Does NOT:
+  - modify /etc/gdm3/custom.conf
+  - hide/disable Wayland sessions
+
+========================================================
+Root cause of the Xorg login loop (confirmed)
+========================================================
+Symptom when choosing “Ubuntu on Xorg” in GDM:
+- First attempt: black screen -> returns to login screen.
+- Second attempt: password entry greys out and hangs; requires TTY + restarting gdm3 to recover interactivity.
+
+Core error in journal:
+- gnome-shell starts then aborts with:
+  - “Failed to setup: Failed to take control of the session: ... EBUSY”
+- And right before that, Xorg (gdm-x-session) already took logind control:
+  - “systemd-logind: took control of session ...”
+
+Why this happens on this Ubuntu 26.04 (resolute) build:
+- The Ubuntu resolute mutter build has the X11 *backend* disabled (Meson option x11=false by default; see src/mutter-49.2/meson.options).
+- In our earlier xorg2 build, this showed up as have_x11=false / HAVE_X11 undefined (but have_x11_client=true for Xwayland).
+- With have_x11=false, GNOME Shell cannot use the real X11 compositor backend, so it falls back to the native backend even in an
+  X11 session and tries to TakeControl via logind.
+- Rootless Xorg (gdm-x-session) already owns that logind control, so GNOME Shell’s TakeControl fails with EBUSY, and the session
+  aborts.
+
+Supporting log you provided:
+- journal_session.log
+- Also reproducible via:
+  - journalctl --user -b -u org.gnome.Shell@x11.service
+
+========================================================
+Fix attempts (history)
+========================================================
+xorg1 (superseded):
+- Patched mutter to ignore TakeControl EBUSY in X11 sessions.
+- Result: progressed to “NotInControl” / “No GPUs found” (worse), because GNOME Shell still needed logind control to open DRM
+  devices.
+- Artifacts still present in out/:
+  - out/libmutter-17-0_49.2-1ubuntu1+xorg1_amd64.deb, etc.
+
+xorg2 (superseded):
+- Patched mutter to prefer $XDG_SESSION_TYPE when selecting compositor type.
+- Result: did not fix the real issue because the X11 backend was still compiled out (have_x11=false).
+- Artifacts still present in out/:
+  - out/libmutter-17-0_49.2-1ubuntu1+xorg2_amd64.deb, etc.
+
+========================================================
+Current fix (xorg3): rebuild mutter with X11 backend enabled
+========================================================
+Change made:
+- src/mutter-49.2/debian/rules: add Meson flag -Dx11=true
+- src/mutter-49.2/debian/mutter-common-bin.install: install usr/libexec/mutter-restart-helper (newly built when X11 enabled)
+- src/mutter-49.2/debian/libmutter-17-0.symbols: add X11-related exported symbols introduced by enabling X11 backend
+- src/mutter-49.2/debian/changelog: bump version to 49.2-1ubuntu1+xorg3
+
+Build:
+- Built in Docker (so host doesn’t need mutter build-deps installed)
+- Log: logs/build-mutter-xorg3-docker.txt
+
+New runtime .debs:
+- out/libmutter-17-0_49.2-1ubuntu1+xorg3_amd64.deb
+- out/mutter-common_49.2-1ubuntu1+xorg3_all.deb
+- out/mutter-common-bin_49.2-1ubuntu1+xorg3_amd64.deb
+- out/gir1.2-mutter-17_49.2-1ubuntu1+xorg3_amd64.deb
+
+========================================================
+Installation / test procedure (manual, be careful with sudo)
+========================================================
+0) Make sure Wayland stays available:
+- Do NOT change /etc/gdm3/custom.conf to disable Wayland while testing this.
+
+1) Install the safe session package (if not already installed):
+- sudo dpkg -i out/ubuntu-xorg-session_1.0_all.deb
+
+2) Upgrade mutter runtime packages to xorg3:
+- sudo dpkg -i \
+    out/libmutter-17-0_49.2-1ubuntu1+xorg3_amd64.deb \
+    out/mutter-common_49.2-1ubuntu1+xorg3_all.deb \
+    out/mutter-common-bin_49.2-1ubuntu1+xorg3_amd64.deb \
+    out/gir1.2-mutter-17_49.2-1ubuntu1+xorg3_amd64.deb
+- If dpkg reports missing deps:
+  - sudo apt -f install
+
+3) Log out and test “Ubuntu on Xorg” in GDM:
+- If successful:
+  - echo $XDG_SESSION_TYPE  -> x11
+  - loginctl show-session "$XDG_SESSION_ID" -p Type  -> Type=x11
+- If it fails:
+  - Log in via “Ubuntu” (Wayland) and collect logs:
+    - journalctl --user -b -u org.gnome.Shell@x11.service --no-pager | tail -n 200
+    - journalctl -b --no-pager | rg 'gdm-x-session|gnome-shell\\[|TakeControl|NotInControl|No GPUs found' | tail -n 200
+
+Result (confirmed)
+- After installing ubuntu-xorg-session + mutter xorg3 and logging out/in, “Ubuntu on Xorg” successfully logs in (XDG_SESSION_TYPE=x11).
+
+========================================================
+How to install packages without sudo (general answer)
+========================================================
+If you don’t have sudo/root, you generally can’t install system packages into /usr or change system services like GDM.
+However, you can still “install” many packages for your user account by extracting them somewhere under $HOME:
+
+1) Extract a .deb without installing (user-space):
+- mkdir -p ~/.local/opt/pkg
+- dpkg -x some-package.deb ~/.local/opt/pkg
+- Then adjust your environment (depends on what you extracted):
+  - PATH=~/.local/opt/pkg/usr/bin:$PATH
+  - LD_LIBRARY_PATH=~/.local/opt/pkg/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+  - XDG_DATA_DIRS=~/.local/opt/pkg/usr/share:$XDG_DATA_DIRS
+
+2) Prefer per-user installers where available:
+- Python: pip install --user ...
+- Node: npm install -g --prefix ~/.local ...
+- Rust: cargo install --locked ...
+- Conda/Mamba: install into a user env
+- Flatpak: flatpak install --user ...
+
+For this project specifically:
+- GDM session entries (/usr/share/xsessions), systemd unit files under /usr/lib/systemd, and mutter libraries under /usr/lib all
+  require root to install correctly. Without sudo, you can still build the .debs, but you can’t integrate them into GDM.
+
+========================================================
+Rollback (if login fails after installing these .debs)
+========================================================
+Goal: keep Wayland usable and restore stock mutter packages from Ubuntu.
+
+If you are stuck in a login loop:
+1) In the GDM login screen, use the gear icon and choose “Ubuntu” (Wayland), then log in.
+2) If the login screen is non-interactive, switch to a TTY (Ctrl+Alt+F3), log in, and run the rollback commands below.
+   Only as a last resort (this resets the login screen), restart GDM:
+   - sudo systemctl restart gdm3
+
+Rollback commands:
+1) Remove the safe Xorg session package (optional but keeps things clean):
+   - sudo apt remove ubuntu-xorg-session
+
+2) Downgrade mutter packages back to the Ubuntu repo version:
+   - Check what version is available in the repo:
+     - apt-cache policy libmutter-17-0 mutter-common mutter-common-bin gir1.2-mutter-17 | sed -n '1,120p'
+   - Install the repo version with allow-downgrades (replace 49.2-1ubuntu1 with what apt-cache policy shows):
+     - sudo apt install -y --allow-downgrades --reinstall \
+         libmutter-17-0=49.2-1ubuntu1 \
+         mutter-common=49.2-1ubuntu1 \
+         mutter-common-bin=49.2-1ubuntu1 \
+         gir1.2-mutter-17=49.2-1ubuntu1
+
+3) Retry login using Wayland (“Ubuntu”) first. Only retry “Ubuntu on Xorg” after Wayland is stable again.
