@@ -1,30 +1,23 @@
-From: ubuntu-2604-xorg
-Subject: Enable mutter X11 backend for Ubuntu 26.04
+Subject: Enable mutter X11 backend (Ubuntu 26.04)
 
-This enables the mutter X11 backend (Meson -Dx11=true) so GNOME Shell can run
-as a real X11 window manager/compositor in an "Ubuntu on Xorg" session.
+Enable the mutter X11 backend (Meson `-Dx11=true`) so GNOME Shell can run as a
+real X11 window manager/compositor in an "Ubuntu on Xorg" session.
 
-This also installs mutter-restart-helper (produced when building with X11) and
-relaxes dpkg-gensymbols checking for this local rebuild.
+This patch also installs `mutter-restart-helper` (produced when building with
+X11 enabled) and updates the `libmutter-17-0` symbols file for the additional
+X11-related exported symbols.
 
+diff --git a/debian/rules b/debian/rules
 --- a/debian/rules
 +++ b/debian/rules
-@@
--export DPKG_GENSYMBOLS_CHECK_LEVEL = 4
-+export DPKG_GENSYMBOLS_CHECK_LEVEL = 0
-@@
- CONFFLAGS = \
- 	-Dauto_features=enabled \
- 	-Degl_device=true \
- 	-Dremote_desktop=true \
+@@ -26,1 +26,2 @@
 -	-Dwayland_eglstream=true
 +	-Dwayland_eglstream=true \
 +	-Dx11=true
- export deb_udevdir = $(shell pkg-config --variable=udevdir udev | sed s,^/,,)
-
+diff --git a/debian/mutter-common-bin.install b/debian/mutter-common-bin.install
 --- a/debian/mutter-common-bin.install
 +++ b/debian/mutter-common-bin.install
-@@
+@@ -1,6 +1,7 @@
  usr/bin/gdctl
  usr/libexec/mutter-backlight-helper
 +usr/libexec/mutter-restart-helper
@@ -32,3 +25,60 @@ relaxes dpkg-gensymbols checking for this local rebuild.
  usr/share/bash-completion/completions/gdctl
  usr/share/man/man1/gdctl.1
  usr/share/polkit-1/actions/org.gnome.mutter.backlight-helper.policy
+diff --git a/debian/libmutter-17-0.symbols b/debian/libmutter-17-0.symbols
+--- a/debian/libmutter-17-0.symbols
++++ b/debian/libmutter-17-0.symbols
+@@ -147,7 +147,8 @@
+  meta_context_get_session_manager@Base 48.0
+  meta_context_get_type@Base 43.0
+  meta_context_get_wayland_compositor@Base 43.0
+  meta_context_is_replacing@Base 43.0
++ meta_context_is_x11_sync@Base 49.2-1ubuntu1+ubuntu2604xorg1
+  meta_context_notify_ready@Base 43.0
+  meta_context_raise_rlimit_nofile@Base 43.0
+  meta_context_restore_rlimit_nofile@Base 43.0
+@@ -708,7 +709,8 @@
+  meta_stack_tracker_get_stack@Base 43.0
+  meta_stage_get_type@Base 43.0
+  meta_stage_remove_watch@Base 43.0
+  meta_stage_watch_view@Base 43.0
++ meta_stage_x11_get_type@Base 49.2-1ubuntu1+ubuntu2604xorg1
+  meta_startup_notification_create_launcher@Base 43.0
+  meta_startup_notification_get_sequences@Base 43.0
+  meta_startup_notification_get_type@Base 43.0
+@@ -2217,2 +2217,4 @@
+  _cogl_winsys_egl_renderer_connect_common@Base 43.0
++ _cogl_winsys_egl_xlib_get_vtable@Base 49.2-1ubuntu1+ubuntu2604xorg1
+  _cogl_winsys_error_quark@Base 43.0
++ _cogl_winsys_glx_get_vtable@Base 49.2-1ubuntu1+ubuntu2604xorg1
+@@ -2436,2 +2436,3 @@
+  cogl_onscreen_get_window_handles@Base 48.0
++ cogl_onscreen_glx_new@Base 49.2-1ubuntu1+ubuntu2604xorg1
+  cogl_onscreen_peek_head_frame_info@Base 43.0
+@@ -2444,2 +2444,3 @@
+  cogl_onscreen_swap_region@Base 43.0
++ cogl_onscreen_xlib_new@Base 49.2-1ubuntu1+ubuntu2604xorg1
+  cogl_param_color_get_type@Base 47.0
+@@ -2631,7 +2637,14 @@
+  cogl_texture_get_type@Base 46.0
+  cogl_texture_get_width@Base 43.0
+  cogl_texture_is_get_data_supported@Base 43.0
+  cogl_texture_is_sliced@Base 43.0
++ cogl_texture_pixmap_x11_error_quark@Base 49.2-1ubuntu1+ubuntu2604xorg1
++ cogl_texture_pixmap_x11_get_type@Base 49.2-1ubuntu1+ubuntu2604xorg1
++ cogl_texture_pixmap_x11_is_using_tfp_extension@Base 49.2-1ubuntu1+ubuntu2604xorg1
++ cogl_texture_pixmap_x11_new@Base 49.2-1ubuntu1+ubuntu2604xorg1
++ cogl_texture_pixmap_x11_new_left@Base 49.2-1ubuntu1+ubuntu2604xorg1
++ cogl_texture_pixmap_x11_new_right@Base 49.2-1ubuntu1+ubuntu2604xorg1
++ cogl_texture_pixmap_x11_update_area@Base 49.2-1ubuntu1+ubuntu2604xorg1
+  cogl_texture_set_components@Base 43.0
+  cogl_texture_set_data@Base 43.0
+  cogl_texture_set_premultiplied@Base 43.0
+@@ -2658,4 +2671,7 @@
+  cogl_vertices_mode_get_type@Base 48.0
+  cogl_winding_get_type@Base 48.0
+  cogl_winsys_feature_get_type@Base 48.0
++ cogl_x11_onscreen_get_type@Base 49.2-1ubuntu1+ubuntu2604xorg1
++ cogl_x11_onscreen_get_x11_window@Base 49.2-1ubuntu1+ubuntu2604xorg1
++ cogl_xlib_renderer_set_foreign_display@Base 49.2-1ubuntu1+ubuntu2604xorg1
+ libmutter-mtk-17.so.0 libmutter-17-0 #MINVER#

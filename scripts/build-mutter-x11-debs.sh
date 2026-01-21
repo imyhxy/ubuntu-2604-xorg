@@ -65,6 +65,9 @@ cp -v gir1.2-mutter-17_*_amd64.deb /repo/out/
 
 # Make outputs editable by the host user.
 chown -R "${HOST_UID}:${HOST_GID}" /repo/out
+
+# Avoid leaving root-owned artifacts in the shared workdir on the host.
+chown -R "${HOST_UID}:${HOST_GID}" /repo/work
 '
 
 echo
