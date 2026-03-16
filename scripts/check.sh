@@ -3,6 +3,11 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
+latest_pkg() {
+  local pattern="$1"
+  apt-cache pkgnames | rg "${pattern}" | sort -V | tail -n 1
+}
+
 echo "Repo: ${ROOT_DIR}"
 echo
 
@@ -30,9 +35,20 @@ if ! docker ps >/dev/null 2>&1; then
 fi
 echo "docker daemon access: OK"
 
+libmutter_pkg="$(latest_pkg '^libmutter-[0-9]+-0$')"
+gir_pkg="$(latest_pkg '^gir1\\.2-mutter-[0-9]+$')"
+
 echo
 echo "Installed (host):"
-dpkg -l | awk '/^ii/ && ($2 ~ /^(gdm3|gnome-shell|gnome-session|mutter|mutter-common|mutter-common-bin|gir1.2-mutter-17|libmutter-17-0)(:.*)?$/) {print "  " $2 " " $3}'
+dpkg -l | awk -v libmutter_pkg="${libmutter_pkg}" -v gir_pkg="${gir_pkg}" '
+  /^ii/ && (
+    $2 ~ /^(gdm3|gnome-shell|gnome-session|mutter|mutter-common|mutter-common-bin)(:.*)?$/ ||
+    $2 == libmutter_pkg ||
+    $2 == gir_pkg
+  ) {
+    print "  " $2 " " $3
+  }
+'
 
 echo
 echo "Done."

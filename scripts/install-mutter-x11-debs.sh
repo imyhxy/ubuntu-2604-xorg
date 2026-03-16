@@ -18,10 +18,14 @@ fi
 
 shopt -s nullglob
 
-libmutter=( "${OUT_DIR}"/libmutter-17-0_*ubuntu2604xorg*_amd64.deb )
+libmutter=( "${OUT_DIR}"/libmutter-*-0_*ubuntu2604xorg*_amd64.deb )
 mutter_common=( "${OUT_DIR}"/mutter-common_*ubuntu2604xorg*_all.deb )
 mutter_common_bin=( "${OUT_DIR}"/mutter-common-bin_*ubuntu2604xorg*_amd64.deb )
-gir=( "${OUT_DIR}"/gir1.2-mutter-17_*ubuntu2604xorg*_amd64.deb )
+gir=( "${OUT_DIR}"/gir1.2-mutter-*_*ubuntu2604xorg*_amd64.deb )
+
+latest_file() {
+  printf '%s\n' "$@" | sort -V | tail -n 1
+}
 
 if (( ${#libmutter[@]} == 0 || ${#mutter_common[@]} == 0 || ${#mutter_common_bin[@]} == 0 || ${#gir[@]} == 0 )); then
   echo "ERROR: Missing expected ubuntu2604xorg .debs in ${OUT_DIR}."
@@ -29,9 +33,13 @@ if (( ${#libmutter[@]} == 0 || ${#mutter_common[@]} == 0 || ${#mutter_common_bin
   exit 1
 fi
 
-sudo dpkg -i "${libmutter[-1]}" "${mutter_common[-1]}" "${mutter_common_bin[-1]}" "${gir[-1]}" || true
+libmutter_file="$(latest_file "${libmutter[@]}")"
+mutter_common_file="$(latest_file "${mutter_common[@]}")"
+mutter_common_bin_file="$(latest_file "${mutter_common_bin[@]}")"
+gir_file="$(latest_file "${gir[@]}")"
+
+sudo dpkg -i "${libmutter_file}" "${mutter_common_file}" "${mutter_common_bin_file}" "${gir_file}" || true
 sudo apt -f install -y
 
 echo "Installed mutter packages."
 echo "Next: log out and choose “Ubuntu on Xorg”."
-

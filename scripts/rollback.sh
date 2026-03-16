@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 YES="${1:-}"
 
+latest_pkg() {
+  local pattern="$1"
+  apt-cache pkgnames | rg "${pattern}" | sort -V | tail -n 1
+}
+
 if [[ "${YES}" != "--yes" ]]; then
   cat <<EOF
 This script removes the session files and downgrades mutter packages back to the Ubuntu repo versions.
@@ -61,28 +66,36 @@ repo_version() {
   '
 }
 
-ver_lib="$(repo_version libmutter-17-0)"
+libmutter_pkg="$(latest_pkg '^libmutter-[0-9]+-0$')"
+gir_pkg="$(latest_pkg '^gir1\\.2-mutter-[0-9]+$')"
+
+if [[ -z "${libmutter_pkg}" || -z "${gir_pkg}" ]]; then
+  echo "ERROR: Could not determine the current mutter ABI package names."
+  exit 1
+fi
+
+ver_lib="$(repo_version "${libmutter_pkg}")"
 ver_common="$(repo_version mutter-common)"
 ver_common_bin="$(repo_version mutter-common-bin)"
-ver_gir="$(repo_version gir1.2-mutter-17)"
+ver_gir="$(repo_version "${gir_pkg}")"
 
 if [[ -z "${ver_lib}" || -z "${ver_common}" || -z "${ver_common_bin}" || -z "${ver_gir}" ]]; then
   echo "ERROR: Could not determine repo versions via apt-cache policy."
   echo "Run manually:"
-  echo "  apt-cache policy libmutter-17-0 mutter-common mutter-common-bin gir1.2-mutter-17 | sed -n '1,120p'"
+  echo "  apt-cache policy ${libmutter_pkg} mutter-common mutter-common-bin ${gir_pkg} | sed -n '1,120p'"
   exit 1
 fi
 
 echo "Downgrading to repo versions:"
-echo "  libmutter-17-0=${ver_lib}"
+echo "  ${libmutter_pkg}=${ver_lib}"
 echo "  mutter-common=${ver_common}"
 echo "  mutter-common-bin=${ver_common_bin}"
-echo "  gir1.2-mutter-17=${ver_gir}"
+echo "  ${gir_pkg}=${ver_gir}"
 
 sudo apt install -y --allow-downgrades --reinstall \
-  "libmutter-17-0=${ver_lib}" \
+  "${libmutter_pkg}=${ver_lib}" \
   "mutter-common=${ver_common}" \
   "mutter-common-bin=${ver_common_bin}" \
-  "gir1.2-mutter-17=${ver_gir}"
+  "${gir_pkg}=${ver_gir}"
 
 echo "Rollback complete. Prefer logging in with Wayland (“Ubuntu”) first."

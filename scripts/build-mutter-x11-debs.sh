@@ -37,19 +37,28 @@ if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
 fi
 apt-get update
 
-rm -rf mutter-* *.dsc *.debian.tar.* *.orig.tar.*
+rm -rf mutter-* *.dsc *.debian.tar.* *.orig.tar.* *.buildinfo *.changes *.deb *.ddeb
 apt-get source mutter
 
 MUTTER_DIR="$(find . -maxdepth 1 -type d -name "mutter-*" | head -n 1)"
 test -n "${MUTTER_DIR}"
 cd "${MUTTER_DIR}"
 
-patch -p1 < /repo/patches/mutter/0001-enable-x11-backend.patch
-
-# Add a local version suffix for clarity (e.g. 49.2-1ubuntu1+ubuntu2604xorg1).
-if ! dpkg-parsechangelog -S Version | grep -q ubuntu2604xorg; then
-  dch --local "+ubuntu2604xorg" --distribution "$(dpkg-parsechangelog -S Distribution)" "Enable mutter X11 backend for Ubuntu 26.04 Xorg session."
+if patch --forward --batch -p1 < /repo/patches/mutter/0001-enable-x11-backend.patch; then
+  echo "Applied local mutter packaging patch."
+elif grep -q -- "-Dx11=true" debian/rules; then
+  echo "ERROR: Local mutter patch failed and debian/rules still contains -Dx11=true." >&2
+  exit 1
+else
+  echo "Local mutter patch not needed for this source snapshot."
 fi
+
+# Add a local version suffix for clarity (e.g. 50~beta-2ubuntu4+ubuntu2604xorg1).
+if ! dpkg-parsechangelog -S Version | grep -q ubuntu2604xorg; then
+  dch --local "+ubuntu2604xorg" --distribution "$(dpkg-parsechangelog -S Distribution)" "Fix mutter packaging for Ubuntu 26.04 Xorg session build."
+fi
+
+PACKAGE_VERSION="$(dpkg-parsechangelog -S Version)"
 
 mk-build-deps --install --tool "apt-get -y --no-install-recommends" --remove debian/control
 
@@ -58,10 +67,10 @@ dpkg-buildpackage -us -uc -b
 
 cd ..
 
-cp -v libmutter-17-0_*_amd64.deb /repo/out/
-cp -v mutter-common_*_all.deb /repo/out/
-cp -v mutter-common-bin_*_amd64.deb /repo/out/
-cp -v gir1.2-mutter-17_*_amd64.deb /repo/out/
+cp -v libmutter-*-0_"${PACKAGE_VERSION}"_amd64.deb /repo/out/
+cp -v mutter-common_"${PACKAGE_VERSION}"_all.deb /repo/out/
+cp -v mutter-common-bin_"${PACKAGE_VERSION}"_amd64.deb /repo/out/
+cp -v gir1.2-mutter-*_"${PACKAGE_VERSION}"_amd64.deb /repo/out/
 
 # Make outputs editable by the host user.
 chown -R "${HOST_UID}:${HOST_GID}" /repo/out
