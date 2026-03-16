@@ -1,5 +1,22 @@
 # Enable “Ubuntu on Xorg” (X11) on Ubuntu 26.04
 
+## Status
+
+This repo's tested working path is for the Ubuntu 26.04 snapshots that still used the GNOME 49 stack, specifically the `49.2-1ubuntu1` mutter line.
+
+It is **not a working solution for updated GNOME 50 builds** on current Ubuntu 26.04 development snapshots.
+
+Why:
+
+- GNOME 49 disabled X11 sessions by default upstream.
+- Upstream explicitly said that X11 session support was planned to be removed in GNOME 50.
+- On current Ubuntu 26.04 GNOME 50 packages, the old native GNOME-on-Xorg session path no longer works with only a local `ubuntu-xorg-session` package plus a mutter rebuild.
+
+References:
+
+- GNOME 49 release notes, September 18, 2024: https://release.gnome.org/49/
+- Jordan Petridis, “Why X11 sessions are disabled by default in GNOME 49”, September 10, 2024: https://blogs.gnome.org/alatiera/2024/09/10/x11-session-removal/
+
 Ubuntu 26.04 can land in an awkward state where:
 
 1) **There is no “Ubuntu on Xorg” option** in the GDM gear menu, and
@@ -31,20 +48,20 @@ That makes the option appear, but it still doesn’t mean it can successfully lo
 What mutter needs depends on which Ubuntu 26.04 snapshot you are on:
 
 - Earlier GNOME 49 / mutter 49 snapshots needed a local mutter rebuild with the X11 backend enabled.
-- Current updated GNOME 50 / mutter 50 snapshots already build the X11 code, but the Ubuntu source package still passes a stale Meson flag: `-Dx11=true`.
+- Updated GNOME 50 / mutter 50 snapshots are **not supported by this repo as a working Ubuntu Xorg login solution**.
 
-On current mutter 50 sources, that stale flag makes the build fail immediately:
+For current mutter 50 sources, Ubuntu packaging also carried a stale Meson flag:
 
 ```text
 ERROR: Unknown option: "x11"
 ```
 
-So this repo now applies the minimal current patch: remove the obsolete `-Dx11=true` from `debian/rules`, rebuild mutter, and install the rebuilt runtime packages.
+That packaging issue can be patched well enough to make the source package build, but that does **not** restore a working native GNOME X11 session on GNOME 50.
 
 ## What this repo provides
 
 - A reproducible builder for **`ubuntu-xorg-session`** (adds the session entry + missing systemd user units).
-- A Docker-based builder for the current Ubuntu `mutter` source, with the local packaging fix needed for updated 26.04 snapshots, plus an installer for the rebuilt `.deb`s.
+- A Docker-based builder for the GNOME 49-era Ubuntu `mutter` source path we actually used successfully.
 - A rollback script that removes the local session package and downgrades mutter back to the Ubuntu repo version.
 
 ## Requirements
@@ -57,11 +74,53 @@ Wayland is intentionally **not disabled** during testing so you can always log i
 
 ## Quick start
 
+Only use this on the GNOME 49 / mutter 49 package line.
+
 ```bash
 ./scripts/run-all.sh --yes
 ```
 
 Then log out and pick **“Ubuntu on Xorg”** in GDM.
+
+## Current GNOME 50 hosts: supported downgrade path
+
+If your Ubuntu 26.04 machine has already moved to the GNOME 50 stack, the supported path in this repo is:
+
+1. Downgrade the GNOME session packages back to the older Ubuntu 49-era binaries.
+2. Install the patched mutter 49.2 runtime packages.
+3. Install the local `ubuntu-xorg-session` package so GDM exposes **Ubuntu on Xorg** again.
+
+The matched downgrade bundle is:
+
+- `gdm3 49.2-1ubuntu3`
+- `libgdm1 49.2-1ubuntu3`
+- `gir1.2-gdm-1.0 49.2-1ubuntu3`
+- `gnome-session 49.2-3ubuntu1`
+- `gnome-session-bin 49.2-3ubuntu1`
+- `gnome-session-common 49.2-3ubuntu1`
+- `ubuntu-session 49.2-3ubuntu1`
+- `gnome-shell 49.2-1ubuntu2`
+- `gnome-shell-common 49.2-1ubuntu2`
+- `gnome-shell-ubuntu-extensions 49.26.04.2ubuntu`
+- patched mutter release assets built from the `49.2-1ubuntu1` line
+
+Preview the downgrade first:
+
+```bash
+./scripts/simulate-gnome49-downgrade.sh
+```
+
+If the simulation looks acceptable, do the real downgrade:
+
+```bash
+./scripts/install-gnome49-downgrade.sh --yes
+```
+
+Expected side effects on a current GNOME 50 host:
+
+- `gnome-shell-extension-prefs`, `gnome-initial-setup`, and `gnome-remote-desktop` may be removed if you do not separately downgrade them too.
+- `ubuntu-desktop` metapackages may stop being installed. That does not by itself remove the desktop you already have.
+- `libmutter-18-0` and `gir1.2-mutter-18` are replaced by the older `17` ABI line.
 
 ## Step-by-step
 
@@ -97,7 +156,7 @@ You can override the Docker base image if needed:
 UBUNTU_IMAGE=ubuntu:devel ./scripts/build-mutter-x11-debs.sh
 ```
 
-The script applies the repo patch automatically when it matches, and skips it when the downloaded Ubuntu source already contains the fix. On stale mutter 50 packaging snapshots, that patch removes the obsolete Meson `-Dx11=true` flag.
+The script applies the repo patch automatically when it matches.
 
 ### 4) Install rebuilt mutter packages (sudo)
 
@@ -130,6 +189,10 @@ If the login screen becomes non-interactive, switch to a TTY (`Ctrl`+`Alt`+`F3`)
 ```bash
 sudo systemctl restart gdm3
 ```
+
+## Important limitation
+
+If your system has already moved to GNOME 50, this repo should be treated as documentation for the earlier successful GNOME 49 workaround, not as a supported fix for the current stack.
 
 ## Security note
 

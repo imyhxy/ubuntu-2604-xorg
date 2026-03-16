@@ -67,35 +67,52 @@ repo_version() {
 }
 
 libmutter_pkg="$(latest_pkg '^libmutter-[0-9]+-0$')"
-gir_pkg="$(latest_pkg '^gir1\\.2-mutter-[0-9]+$')"
+gir_pkg="$(latest_pkg '^gir1\.2-mutter-[0-9]+$')"
 
 if [[ -z "${libmutter_pkg}" || -z "${gir_pkg}" ]]; then
   echo "ERROR: Could not determine the current mutter ABI package names."
   exit 1
 fi
 
-ver_lib="$(repo_version "${libmutter_pkg}")"
-ver_common="$(repo_version mutter-common)"
-ver_common_bin="$(repo_version mutter-common-bin)"
-ver_gir="$(repo_version "${gir_pkg}")"
+pkg_args=()
+add_repo_pkg() {
+  local pkg="$1"
+  local ver
+  ver="$(repo_version "${pkg}")"
+  if [[ -n "${ver}" ]]; then
+    pkg_args+=( "${pkg}=${ver}" )
+  fi
+}
 
-if [[ -z "${ver_lib}" || -z "${ver_common}" || -z "${ver_common_bin}" || -z "${ver_gir}" ]]; then
+add_repo_pkg gdm3
+add_repo_pkg libgdm1
+add_repo_pkg gir1.2-gdm-1.0
+add_repo_pkg gnome-session
+add_repo_pkg gnome-session-bin
+add_repo_pkg gnome-session-common
+add_repo_pkg gnome-shell
+add_repo_pkg gnome-shell-common
+add_repo_pkg gnome-shell-ubuntu-extensions
+add_repo_pkg gnome-shell-extension-prefs
+add_repo_pkg gnome-initial-setup
+add_repo_pkg gnome-remote-desktop
+add_repo_pkg ubuntu-session
+add_repo_pkg ubuntu-desktop
+add_repo_pkg ubuntu-desktop-minimal
+add_repo_pkg mutter-common
+add_repo_pkg mutter-common-bin
+add_repo_pkg "${libmutter_pkg}"
+add_repo_pkg "${gir_pkg}"
+
+if (( ${#pkg_args[@]} == 0 )); then
   echo "ERROR: Could not determine repo versions via apt-cache policy."
-  echo "Run manually:"
-  echo "  apt-cache policy ${libmutter_pkg} mutter-common mutter-common-bin ${gir_pkg} | sed -n '1,120p'"
   exit 1
 fi
 
-echo "Downgrading to repo versions:"
-echo "  ${libmutter_pkg}=${ver_lib}"
-echo "  mutter-common=${ver_common}"
-echo "  mutter-common-bin=${ver_common_bin}"
-echo "  ${gir_pkg}=${ver_gir}"
+echo "Restoring repo versions:"
+printf '  %s\n' "${pkg_args[@]}"
 
 sudo apt install -y --allow-downgrades --reinstall \
-  "${libmutter_pkg}=${ver_lib}" \
-  "mutter-common=${ver_common}" \
-  "mutter-common-bin=${ver_common_bin}" \
-  "${gir_pkg}=${ver_gir}"
+  "${pkg_args[@]}"
 
 echo "Rollback complete. Prefer logging in with Wayland (“Ubuntu”) first."

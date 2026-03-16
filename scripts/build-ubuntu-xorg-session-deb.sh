@@ -57,4 +57,3 @@ dpkg-deb --root-owner-group --build "${PKG_ROOT}" "${OUT_DEB}" >/dev/null
 
 echo "Built: ${OUT_DEB}"
 echo "Next: ${ROOT_DIR}/scripts/install-ubuntu-xorg-session-deb.sh --yes"
-

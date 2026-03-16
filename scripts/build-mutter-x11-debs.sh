@@ -60,6 +60,14 @@ fi
 
 PACKAGE_VERSION="$(dpkg-parsechangelog -S Version)"
 
+case "${PACKAGE_VERSION}" in
+  50~*|5[1-9]*|[6-9][0-9]*)
+    echo "ERROR: Downloaded mutter source version ${PACKAGE_VERSION}." >&2
+    echo "This repo's tested Xorg workaround is for the GNOME 49 / mutter 49 line, not GNOME 50+." >&2
+    exit 1
+    ;;
+esac
+
 mk-build-deps --install --tool "apt-get -y --no-install-recommends" --remove debian/control
 
 export DEB_BUILD_OPTIONS=nocheck

@@ -16,3 +16,4 @@ echo
 
 echo
 echo "Done. Log out and choose “Ubuntu on Xorg”."
+echo "If check.sh reported GNOME 50 or newer, stop and roll back instead."

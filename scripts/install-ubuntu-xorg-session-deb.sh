@@ -31,5 +31,5 @@ sudo dpkg -i "${latest}" || true
 sudo apt -f install -y
 
 echo "Installed: ubuntu-xorg-session"
-echo "Next: log out and check that “Ubuntu on Xorg” appears in GDM."
-
+echo "Next: sudo systemctl restart gdm3"
+echo "Then log out and test “Ubuntu on Xorg”."
