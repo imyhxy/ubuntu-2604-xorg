@@ -65,7 +65,11 @@ download_if_missing \
   "https://github.com/imyhxy/ubuntu-2604-xorg/releases/download/mutter-49.2-1ubuntu1-ubuntu2604xorg1/gir1.2-mutter-17_49.2-1ubuntu1%2Bubuntu2604xorg1_amd64.deb" \
   "${OUT_DIR}/gir1.2-mutter-17_49.2-1ubuntu1+ubuntu2604xorg1_amd64.deb"
 
-"${ROOT_DIR}/scripts/build-ubuntu-xorg-session-deb.sh"
+if [[ ! -f "${OUT_DIR}/ubuntu-xorg-session_1.0_all.deb" ]]; then
+  echo "Missing ${OUT_DIR}/ubuntu-xorg-session_1.0_all.deb" >&2
+  echo "Build it first with ${ROOT_DIR}/scripts/build-ubuntu-xorg-session-deb.sh" >&2
+  exit 1
+fi
 
 echo
 echo "Downloaded GNOME 49 downgrade .debs into ${DOWNLOAD_DIR}"
