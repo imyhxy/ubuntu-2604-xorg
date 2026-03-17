@@ -17,6 +17,21 @@ References:
 - GNOME 49 release notes, September 18, 2024: https://release.gnome.org/49/
 - Jordan Petridis, “Why X11 sessions are disabled by default in GNOME 49”, September 10, 2024: https://blogs.gnome.org/alatiera/2024/09/10/x11-session-removal/
 
+## Last GNOME 49 snapshot window
+
+Using direct package-index fetches from `snapshot.ubuntu.com` and a binary search over UTC timestamps, the `resolute` `mutter-common` package flips from the GNOME 49 line to GNOME 50 between:
+
+- `2026-03-01T21:30:00Z` -> `49.2-1ubuntu1`
+- `2026-03-01T21:45:00Z` -> `50~beta-2ubuntu4`
+
+So the **last snapshot day with mutter 49.2 is March 1, 2026 UTC**.
+
+To reproduce that search without touching local APT state:
+
+```bash
+./scripts/find-last-mutter-49-snapshot.sh
+```
+
 Ubuntu 26.04 can land in an awkward state where:
 
 1) **There is no “Ubuntu on Xorg” option** in the GDM gear menu, and
@@ -70,7 +85,7 @@ That packaging issue can be patched well enough to make the source package build
 - `docker` working for your user (`docker ps` works)
 - `sudo` access (only used by install/rollback steps)
 
-Wayland is intentionally **not disabled** during testing so you can always log in with “Ubuntu” (Wayland) if Xorg breaks.
+Wayland is intentionally **not disabled** during the main desktop-session setup so you can always log in with “Ubuntu” (Wayland) if Xorg breaks.
 
 ## Quick start
 
@@ -116,7 +131,182 @@ If the simulation looks acceptable, do the real downgrade:
 ./scripts/install-gnome49-downgrade.sh --yes
 ```
 
+If you also want the **GDM greeter / login screen itself** to run on Xorg so tools like RustDesk can work there, add this extra step:
+
+```bash
+./scripts/enable-gdm-xorg-greeter.sh --yes
+```
+
+That changes `/etc/gdm3/custom.conf` to set:
+
+```ini
+[daemon]
+WaylandEnable=false
+```
+
+Tradeoff:
+
+- `WaylandEnable=false`: X11 greeter, better login-screen compatibility for X11-only remote tools, but recovery is less forgiving if Xorg breaks again.
+- default GDM config: Wayland greeter, safer fallback, but RustDesk will say login-screen Wayland is unsupported.
+
+## RustDesk slowdown after package updates
+
+If Xorg login works but RustDesk itself becomes very slow after a package update, the first rollback path in this repo is the exact Mesa userspace set that changed on `2026-03-16 09:41:06`:
+
+- `libegl-mesa0 26.0.1-2ubuntu1 -> 25.2.8-2ubuntu1`
+- `libgl1-mesa-dri 26.0.1-2ubuntu1 -> 25.2.8-2ubuntu1`
+- `libglx-mesa0 26.0.1-2ubuntu1 -> 25.2.8-2ubuntu1`
+- `libgbm1 amd64/i386 26.0.1-2ubuntu1 -> 25.2.8-2ubuntu1`
+- `mesa-libgallium amd64/i386 26.0.1-2ubuntu1 -> 25.2.8-2ubuntu1`
+- restore `mesa-va-drivers` and `mesa-vdpau-drivers`, which were removed during that upgrade
+
+Download the exact old package files from Launchpad:
+
+```bash
+./scripts/download-rustdesk-slowdown-rollback-debs.sh
+```
+
+Preview the rollback first:
+
+```bash
+./scripts/simulate-rustdesk-slowdown-rollback.sh
+```
+
+Install the Mesa rollback:
+
+```bash
+./scripts/install-rustdesk-slowdown-rollback.sh --yes
+```
+
+Important:
+
+- Mesa-only rollback is the lower-risk path.
+- I checked the helper-package rollback too (`gnome-settings-daemon`, `gnome-settings-daemon-common`, `xdg-desktop-portal-gnome`), but current `libgtk-4-1 4.21.6+ds-1` explicitly breaks `xdg-desktop-portal-gnome < 50`, so that path is not scripted here as a supported install flow.
+
+## RustDesk UI alignment rollback
+
+If the Mesa rollback does not help, the next candidate set is the GTK/GNOME helper side:
+
+- `libgtk-4-1 4.21.6+ds-1 -> 4.21.5+ds-5`
+- `libgtk-4-common 4.21.6+ds-1 -> 4.21.5+ds-5`
+- `gir1.2-gtk-4.0 4.21.6+ds-1 -> 4.21.5+ds-5`
+- `gnome-settings-daemon 50~beta-0ubuntu2 -> 49.0-1ubuntu3`
+- `gnome-settings-daemon-common 50~beta-0ubuntu2 -> 49.0-1ubuntu3`
+
+Download those packages:
+
+```bash
+./scripts/download-rustdesk-ui-alignment-debs.sh
+```
+
+Preview the rollback:
+
+```bash
+./scripts/simulate-rustdesk-ui-alignment.sh
+```
+
+Install it:
+
+```bash
+./scripts/install-rustdesk-ui-alignment.sh --yes
+```
+
+Important:
+
+- This is more experimental than the Mesa rollback.
+- GTK packages are pulled from the earlier Resolute `4.21.5+ds-5` build that was on the machine before the morning upgrade.
+- `gnome-settings-daemon` is pulled from Ubuntu Questing `49.0-1ubuntu3`, because current Resolute no longer publishes the GNOME 49-era package.
+- This flow intentionally does **not** downgrade `xdg-desktop-portal-gnome`, because GTK 4 on current Resolute declares `Breaks: xdg-desktop-portal-gnome (< 50~)`.
+
+## RustDesk boot-time env workaround
+
+If both rollback paths fail, check whether `rustdesk.service` is still spawning its desktop-side `--server` process with stale greeter variables like:
+
+- `WAYLAND_DISPLAY=wayland-0`
+- `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/60578/bus`
+
+while your real desktop session is already `XDG_SESSION_TYPE=x11`.
+
+This repo includes a systemd workaround that restarts `rustdesk.service` when your X11 user session becomes ready:
+
+```bash
+sudo ./scripts/install-rustdesk-x11-refresh-workaround.sh --yes --user "$USER"
+```
+
+It installs:
+
+- a helper under `/usr/local/lib/ubuntu-2604-xorg/`
+- `rustdesk-x11-refresh.service`
+- `rustdesk-x11-refresh.path`
+
+The path unit watches for `/run/user/<uid>/gdm/Xauthority` and then restarts `rustdesk.service` once the user has an active X11 session.
+
+To remove it later:
+
+```bash
+sudo ./scripts/uninstall-rustdesk-x11-refresh-workaround.sh
+```
+
+## Exact pre-update session stack restore
+
+If you want to put the login/session stack back to the exact state from just before the `2026-03-16 09:09:48` `apt dist-upgrade`, use:
+
+```bash
+./scripts/download-preupdate-session-stack-debs.sh
+./scripts/simulate-preupdate-session-stack.sh
+./scripts/install-preupdate-session-stack.sh --yes
+```
+
+This restores, among other things:
+
+- `gdm3 49.2-1ubuntu4`
+- `libgdm1 49.2-1ubuntu4`
+- `gir1.2-gdm-1.0 49.2-1ubuntu4`
+- `gnome-settings-daemon 50~beta-0ubuntu2`
+- `gnome-settings-daemon-common 50~beta-0ubuntu2`
+- `xdg-desktop-portal-gnome 50~rc-0ubuntu1`
+- `libgtk-4-1 4.21.5+ds-5`
+- `libgtk-4-common 4.21.5+ds-5`
+- `gir1.2-gtk-4.0 4.21.5+ds-5`
+- the GNOME 49 shell/session packages and patched mutter packages used by this repo
+
+This is the exact “pre-update first” rollback path, not the narrower Mesa-only or GTK-only rollback.
+
 Expected side effects on a current GNOME 50 host:
+
+## Snapshot rollback for all Ubuntu-archive packages changed in the last two weeks
+
+If you want a broader rollback than the hand-picked GNOME or Mesa scripts, this repo also includes a snapshot-based script that:
+
+- parses the last `14` days of `apt` history
+- finds packages whose version changed in that window (`Upgrade` / `Downgrade`)
+- keeps only packages that are currently installed and backed by the Ubuntu archive
+- resolves the version available from the Ubuntu Snapshot Service at the chosen cutoff
+- only targets packages whose current installed version still differs from that snapshot version
+
+Default behavior is simulation only:
+
+```bash
+./scripts/rollback-ubuntu-archive-packages-to-two-weeks-ago.sh
+```
+
+List the selected and skipped packages without touching apt:
+
+```bash
+./scripts/rollback-ubuntu-archive-packages-to-two-weeks-ago.sh --list-only
+```
+
+Apply the rollback for the selected Ubuntu-archive packages:
+
+```bash
+./scripts/rollback-ubuntu-archive-packages-to-two-weeks-ago.sh --yes
+```
+
+Important:
+
+- This does **not** restore local `.deb` installs or third-party repository packages.
+- It only operates on packages the script can confirm are backed by the Ubuntu archive.
+- The default snapshot is computed as `14` days ago in UTC, but you can override it with `--snapshot-id YYYYMMDDTHHMMSSZ`.
 
 - `gnome-shell-extension-prefs`, `gnome-initial-setup`, and `gnome-remote-desktop` may be removed if you do not separately downgrade them too.
 - `ubuntu-desktop` metapackages may stop being installed. That does not by itself remove the desktop you already have.
@@ -182,6 +372,12 @@ loginctl show-session "$XDG_SESSION_ID" -p Type
 
 ```bash
 ./scripts/rollback.sh --yes
+```
+
+If you previously forced the GDM greeter onto Xorg, re-enable the default Wayland greeter first:
+
+```bash
+./scripts/disable-gdm-xorg-greeter.sh --yes
 ```
 
 If the login screen becomes non-interactive, switch to a TTY (`Ctrl`+`Alt`+`F3`), log in, then (last resort) run:
